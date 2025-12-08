@@ -1,0 +1,77 @@
+@echo off
+setlocal
+
+REM Usage: pull-and-package-images.cmd <tag> [outputDir]
+if "%~1"=="" (
+  echo Usage: %~nx0 ^<tag^> [outputDir]
+  exit /b 1
+)
+
+set "TAG=%~1"
+if "%~2"=="" (
+  for /f "usebackq delims=" %%D in (`powershell -NoLogo -NoProfile -Command "[Environment]::GetFolderPath('Desktop')"`) do set "OUTPUT_DIR=%%D"
+) else (
+  set "OUTPUT_DIR=%~2"
+)
+
+REM Check Docker availability
+docker --version >nul 2>nul
+if errorlevel 1 (
+  echo Docker CLI not found. Please install Docker Desktop and ensure "docker" is in PATH.
+  exit /b 1
+)
+
+REM Prepare output directory
+if not exist "%OUTPUT_DIR%" mkdir "%OUTPUT_DIR%"
+
+set "REPO=ghcr.io/venateam"
+set "BACKEND=%REPO%/keep-backend:%TAG%"
+set "FRONTEND=%REPO%/keep-frontend:%TAG%"
+set "BACKEND_TAR=%OUTPUT_DIR%\keep-backend-%TAG%.tar"
+set "FRONTEND_TAR=%OUTPUT_DIR%\keep-frontend-%TAG%.tar"
+set "ZIP_PATH=%OUTPUT_DIR%\keep-images-%TAG%.zip"
+
+REM Optional GHCR login if GHCR_USERNAME and GHCR_TOKEN are set and SKIP_LOGIN is not 1
+if not "%GHCR_USERNAME%"=="" if not "%GHCR_TOKEN%"=="" if not "%SKIP_LOGIN%"=="1" (
+  echo Logging in to ghcr.io as "%GHCR_USERNAME%"...
+  docker login ghcr.io -u "%GHCR_USERNAME%" -p "%GHCR_TOKEN%"
+  if errorlevel 1 (
+    echo ghcr.io login failed.
+    exit /b 1
+  )
+) else (
+  echo Skipping ghcr.io login.
+)
+
+echo Pulling "%BACKEND%"
+docker pull "%BACKEND%"
+if errorlevel 1 exit /b 1
+
+echo Pulling "%FRONTEND%"
+docker pull "%FRONTEND%"
+if errorlevel 1 exit /b 1
+
+if exist "%BACKEND_TAR%" del /f /q "%BACKEND_TAR%"
+if exist "%FRONTEND_TAR%" del /f /q "%FRONTEND_TAR%"
+if exist "%ZIP_PATH%" del /f /q "%ZIP_PATH%"
+
+echo Saving image to "%BACKEND_TAR%"
+docker save -o "%BACKEND_TAR%" "%BACKEND%"
+if errorlevel 1 exit /b 1
+
+echo Saving image to "%FRONTEND_TAR%"
+docker save -o "%FRONTEND_TAR%" "%FRONTEND%"
+if errorlevel 1 exit /b 1
+
+echo Creating ZIP archive "%ZIP_PATH%"
+powershell -NoLogo -NoProfile -Command "Compress-Archive -Path @('%BACKEND_TAR%','%FRONTEND_TAR%') -DestinationPath '%ZIP_PATH%' -Force"
+if errorlevel 1 exit /b 1
+
+echo.
+echo Success! Artifacts created:
+echo  - %BACKEND_TAR%
+echo  - %FRONTEND_TAR%
+echo  - %ZIP_PATH%
+
+endlocal
+exit /b 0
